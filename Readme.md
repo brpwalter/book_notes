@@ -1,4 +1,4 @@
-# 📚 Book Review Application (Sivers-Style)
+# 📚 Book Review Application
 
 Eine minimalistische, performante Webanwendung für Buchrezensionen. Die Anwendung setzt auf Server-Side Rendering (SSR) mit EJS und nutzt PostgreSQL zur dauerhaften Datenspeicherung sowie die Open Library API für automatische Buch-Cover.
 
