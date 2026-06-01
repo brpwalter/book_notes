@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Bücher, die ich gelesen habe</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+
+  <!-- Axios CDN Einbindung -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <style>
+    body { font-family: monospace; max-width: 700px; margin: 40px auto; padding: 0 20px; line-height: 1.5; color: #333; }
+    h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
+    .controls, form { background: #f4f4f4; padding: 15px; margin-bottom: 20px; border: 1px solid #ccc; }
+    .book-item { display: flex; gap: 20px; margin-bottom: 30px; border-bottom: 1px dashed #ccc; padding-bottom: 20px; }
+    .book-cover { width: 80px; height: 120px; background: #ddd; object-fit: cover; border: 1px solid #999; }
+    .book-details { flex: 1; }
+    .rating-badge { font-weight: bold; color: #b22222; }
+    .actions { margin-top: 10px; }
+    button, .btn-link { cursor: pointer; font-family: monospace; background: #fff; border: 1px solid #333; padding: 2px 6px; margin-right: 5px; text-decoration: none; color: #333; display: inline-block; }
+    button:hover, .btn-link:hover { background: #333; color: #fff; }
+    input, textarea { width: 100%; margin-bottom: 10px; display: block; box-sizing: border-box; font-family: monospace; }
+    .active-sort { background: #333; color: #fff; }
+  </style>
+</head>
+<body>
+
+  <h1>Bücher, die ich gelesen habe</h1>
+
+  <!-- Kombiniertes Create/Update Formular -->
+  <form id="bookForm" action="/books/save" method="POST">
+    <input type="hidden" id="bookId" name="id">
+    <input type="text" id="title" name="title" placeholder="Titel" required class="form-control" style="margin-bottom: 10px;">
+    <input type="text" id="author" name="author" placeholder="Autor" required class="form-control" style="margin-bottom: 10px;">
+    <input type="text" id="isbn" name="isbn" placeholder="ISBN (für das Cover)" class="form-control" style="margin-bottom: 10px;">
+    <input type="number" id="rating" name="rating" placeholder="Bewertung (1-10)" min="1" max="10" required class="form-control" style="margin-bottom: 10px;">
+    <textarea id="review" name="review" placeholder="Rezension Notizen..." rows="4" class="form-control"></textarea>
+    
+    <button type="submit" class="btn btn-primary" id="submitBtn">Eintrag speichern</button>
+    <button type="button" class="btn btn-secondary" id="cancelBtn" style="display:none;" onclick="resetForm()">Abbrechen</button>
+  </form>
+
+  <!-- Sortierungs-Steuerung (Nutzt klassische Query-Links für SSR) -->
+  <div class="controls">
+    Sortieren nach: 
+    <a href="/?sortBy=rating&order=desc" class="btn-link <%= currentSort === 'rating' ? 'active-sort' : '' %>">Beste Bewertung</a>
+    <a href="/?sortBy=recency&order=desc" class="btn-link <%= currentSort === 'recency' ? 'active-sort' : '' %>">Neueste</a>
+  </div>
+
+  <!-- Bücherliste (Serverseitig gerendert mit EJS) -->
+  <div id="booksContainer">
+    <% if (books.length === 0) { %>
+      <p>Noch keine Bücher eingetragen.</p>
+    <% } %>
+    
+    <% books.forEach(function(book) { %>
+      <div class="book-item" id="book-card-<%= book.id %>">
+        <!-- Open Library Covers API Integration -->
+       
+        <img class="book-cover" src="<%= book.isbn ? 'https://covers.openlibrary.org/b/isbn/' + book.isbn + '-M.jpg' : 'https://openlibrary.org/images/icons/avatar_book-sm.png' %>" alt="Cover Image">
+
+
+        <div class="book-details">
+          <h3><%= book.title %> – von <%= book.author %></h3>
+          <p>Empfehlung: <span class="rating-badge"><%= book.rating %></span>/10</p>
+          <p><%= book.review %></p>
+          <div class="actions">
+            <!-- Ruft Axios-Funktionen auf -->
+            <button class="btn btn-primary" onclick="editBook('<%= book.id %>')">Bearbeiten</button>
+            <button class="btn btn-danger" onclick="deleteBook('<%= book.id %>')">Löschen</button>
+          </div>
+        </div>
+      </div>
+    <% }); %>
+  </div>
+<script>
+  const form = document.getElementById('bookForm');
+
+  // Hilfsfunktion zur ISBN-Validierung
+  function validateISBN(isbn) {
+    // Falls das Feld leer ist, überspringen (da optional)
+    if (!isbn) return true; 
+    
+    // Entferne alle Bindestriche und Leerzeichen
+    const cleanISBN = isbn.replace(/[\s-]/g, '');
+    
+    // Regex für ISBN-10 (9 Ziffern + 1 Ziffer/X) oder ISBN-13 (13 Ziffern)
+    const isbnRegex = /^(?:\d{9}[\dX]|\d{13})$/i;
+    
+    return isbnRegex.test(cleanISBN);
+  }
+
+  // Intercept Form Submit für Validierung
+  form.addEventListener('submit', function(e) {
+    const isbnInput = document.getElementById('isbn');
+    const isbnValue = isbnInput.value.trim();
+
+    if (!validateISBN(isbnValue)) {
+      e.preventDefault(); // Stoppt das Absenden des Formulars
+      alert('Ungültiges ISBN-Format! Bitte gib eine korrekte ISBN-10 oder ISBN-13 ein (z. B. 9781501197277). Bindestriche sind erlaubt.');
+      isbnInput.focus();
+      return false;
+    }
+    
+    // Wenn valide, bereinigen wir den Input vor dem Absenden von Bindestrichen
+    if (isbnValue) {
+      isbnInput.value = isbnValue.replace(/[\s-]/g, '');
+    }
+  });
+
+  async function editBook(id) {
+    try {
+      const response = await axios.get(`/api/books/${id}`);
+      const book = response.data;
+
+      document.getElementById('bookId').value = book.id;
+      document.getElementById('title').value = book.title;
+      document.getElementById('author').value = book.author;
+      document.getElementById('isbn').value = book.isbn || '';
+      document.getElementById('rating').value = book.rating;
+      document.getElementById('review').value = book.review || '';
+
+      document.getElementById('submitBtn').innerText = 'Eintrag aktualisieren';
+      document.getElementById('cancelBtn').style.display = 'inline-block';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      alert('Fehler beim Laden des Buchs: ' + error.message);
+    }
+  }
+
+  async function deleteBook(id) {
+    if (confirm('Möchtest du diese Rezension wirklich löschen?')) {
+      try {
+        await axios.delete(`/api/books/${id}`);
+        const element = document.getElementById(`book-card-${id}`);
+        element.remove();
+      } catch (error) {
+        alert('Fehler beim Löschen: ' + error.message);
+      }
+    }
+  }
+
+  function resetForm() {
+    document.getElementById('bookId').value = '';
+    document.getElementById('title').value = '';
+    document.getElementById('author').value = '';
+    document.getElementById('isbn').value = '';
+    document.getElementById('rating').value = '';
+    document.getElementById('review').value = '';
+    document.getElementById('submitBtn').innerText = 'Eintrag speichern';
+    document.getElementById('cancelBtn').style.display = 'none';
+  }
+</script>
+
+  </body>
+</html>
